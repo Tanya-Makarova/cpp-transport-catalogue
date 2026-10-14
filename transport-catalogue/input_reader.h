@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <iosfwd>
 
 #include "geo.h"
 #include "transport_catalogue.h"
@@ -26,6 +27,8 @@ struct CommandDescription {
 
 class InputReader {
 public:
+    void ReadInput(std::istream& input);
+
     /**
      * Парсит строку в структуру CommandDescription и сохраняет результат в commands_
      */

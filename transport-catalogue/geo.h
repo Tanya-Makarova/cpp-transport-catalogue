@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 namespace geo {
@@ -22,9 +23,9 @@ inline double ComputeDistance(Coordinates from, Coordinates to) {
     }
     static const double dr = 3.1415926535 / 180.;
     static const int kEarthRadius = 6371000;
-    return acos(sin(from.lat * dr) * sin(to.lat * dr)
-                + cos(from.lat * dr) * cos(to.lat * dr) * cos(abs(from.lng - to.lng) * dr))
-        * kEarthRadius;
+    const double cosine = sin(from.lat * dr) * sin(to.lat * dr)
+        + cos(from.lat * dr) * cos(to.lat * dr) * cos(abs(from.lng - to.lng) * dr);
+    return acos(clamp(cosine, -1.0, 1.0)) * kEarthRadius;
 }
 
 }  // namespace geo

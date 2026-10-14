@@ -12,4 +12,8 @@ void ParseAndPrintStat(const transport_catalogue::TransportCatalogue& transport_
                        std::string_view request,
                        std::ostream& output);
 
+void ReadAndPrintStat(const transport_catalogue::TransportCatalogue& transport_catalogue,
+                      std::istream& input,
+                      std::ostream& output);
+
 }  // namespace stat_reader

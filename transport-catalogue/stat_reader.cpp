@@ -1,6 +1,8 @@
 #include "stat_reader.h"
 
+#include <istream>
 #include <ostream>
+#include <string>
 
 namespace stat_reader {
 
@@ -17,8 +19,9 @@ void ParseAndPrintStat(const transport_catalogue::TransportCatalogue& transport_
         if (!info) {
             output << "Bus " << bus_name << ": not found\n";
         } else {
-            output << "Bus " << info->name << ": " << info->R << " stops on route, "
-                   << info->U << " unique stops, " << info->L << " route length\n";
+            output << "Bus " << info->name << ": " << info->stop_count << " stops on route, "
+                   << info->unique_stop_count << " unique stops, " << info->route_length
+                   << " route length, " << info->curvature << " curvature\n";
         }
     } else if (request.substr(0, stop_prefix.size()) == stop_prefix) {
         const std::string_view stop_name = request.substr(stop_prefix.size());
@@ -35,6 +38,19 @@ void ParseAndPrintStat(const transport_catalogue::TransportCatalogue& transport_
             }
             output << '\n';
         }
+    }
+}
+
+void ReadAndPrintStat(const transport_catalogue::TransportCatalogue& transport_catalogue,
+                      std::istream& input,
+                      std::ostream& output) {
+    int stat_request_count = 0;
+    input >> stat_request_count >> std::ws;
+
+    for (int i = 0; i < stat_request_count; ++i) {
+        std::string line;
+        std::getline(input, line);
+        ParseAndPrintStat(transport_catalogue, line, output);
     }
 }
 
