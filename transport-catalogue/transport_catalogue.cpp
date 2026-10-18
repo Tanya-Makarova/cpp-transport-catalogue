@@ -49,8 +49,9 @@ void TransportCatalogue::SetDistance(std::string_view from,
                                      int distance) {
     const Stop* from_stop = FindStop(from);
     const Stop* to_stop = FindStop(to);
-    assert(from_stop != nullptr);
-    assert(to_stop != nullptr);
+    if (from_stop == nullptr || to_stop == nullptr) {
+        return;
+    }
 
     distances_[from_stop][to_stop] = distance;
 }
