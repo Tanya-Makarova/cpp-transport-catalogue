@@ -122,17 +122,20 @@ void ProcessText(std::istream& input, std::ostream& output) {
             }
         } else if (request.substr(0, 5) == "Stop ") {
             const std::string_view name = Trim(request.substr(5));
-            const domain::Stop* stop = catalogue.FindStop(std::string(name));
+            const domain::Stop* stop = catalogue.FindStop(name);
             if (stop == nullptr) {
                 output << "Stop " << name << ": not found\n";
-            } else if (stop->buses.empty()) {
-                output << "Stop " << name << ": no buses\n";
             } else {
-                output << "Stop " << name << ": buses";
-                for (const std::string& bus_name : stop->buses) {
-                    output << ' ' << bus_name;
+                const auto* bus_names = catalogue.GetBusesForStop(name);
+                if (bus_names->empty()) {
+                    output << "Stop " << name << ": no buses\n";
+                } else {
+                    output << "Stop " << name << ": buses";
+                    for (const std::string_view bus_name : *bus_names) {
+                        output << ' ' << bus_name;
+                    }
+                    output << '\n';
                 }
-                output << '\n';
             }
         }
     }
@@ -143,7 +146,8 @@ void ProcessText(std::istream& input, std::ostream& output) {
 int main() {
     std::cin >> std::ws;
     if (std::cin.peek() == '{') {
-        json_reader::Process(std::cin, std::cout);
+        json_reader::JSONReader reader;
+        reader.Process(std::cin, std::cout);
     } else {
         ProcessText(std::cin, std::cout);
     }

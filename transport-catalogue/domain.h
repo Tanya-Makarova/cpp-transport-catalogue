@@ -2,9 +2,7 @@
 
 #include "geo.h"
 
-#include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace domain {
@@ -12,8 +10,6 @@ namespace domain {
 struct Stop {
     std::string name;
     geo::Coordinates coordinates;
-    std::unordered_map<const Stop*, int> road_distances;
-    std::set<std::string> buses;
 };
 
 struct Bus {

@@ -8,16 +8,13 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace json_reader {
 
-namespace {
-
-using transport_catalogue::TransportCatalogue;
-
-svg::Color ParseColor(const json::Node& node) {
+svg::Color JSONReader::ParseColor(const json::Node& node) {
     if (node.IsString()) {
         return node.AsString();
     }
@@ -31,12 +28,12 @@ svg::Color ParseColor(const json::Node& node) {
     return svg::Rgba{red, green, blue, components.at(3).AsDouble()};
 }
 
-svg::Point ParsePoint(const json::Node& node) {
+svg::Point JSONReader::ParsePoint(const json::Node& node) {
     const json::Array& coordinates = node.AsArray();
     return {coordinates.at(0).AsDouble(), coordinates.at(1).AsDouble()};
 }
 
-renderer::RenderSettings ParseRenderSettings(const json::Dict& request) {
+renderer::RenderSettings JSONReader::ParseRenderSettings(const json::Dict& request) {
     renderer::RenderSettings settings;
     settings.width = request.at("width").AsDouble();
     settings.height = request.at("height").AsDouble();
@@ -55,29 +52,38 @@ renderer::RenderSettings ParseRenderSettings(const json::Dict& request) {
     return settings;
 }
 
-void AddBaseRequests(const json::Array& requests, TransportCatalogue& catalogue) {
-    // Stop coordinates must exist before distances and bus stop lists are resolved.
+void JSONReader::AddBaseRequests(const json::Array& requests) {
+    AddStops(requests);
+    AddDistances(requests);
+    AddBuses(requests);
+}
+
+void JSONReader::AddStops(const json::Array& requests) {
     for (const json::Node& node : requests) {
         const json::Dict& request = node.AsMap();
         if (request.at("type").AsString() == "Stop") {
-            catalogue.AddStop(request.at("name").AsString(),
-                              {request.at("latitude").AsDouble(),
-                               request.at("longitude").AsDouble()});
+            catalogue_.AddStop(request.at("name").AsString(),
+                               {request.at("latitude").AsDouble(),
+                                request.at("longitude").AsDouble()});
         }
     }
+}
 
+void JSONReader::AddDistances(const json::Array& requests) {
     for (const json::Node& node : requests) {
         const json::Dict& request = node.AsMap();
         if (request.at("type").AsString() == "Stop") {
             const std::string& from = request.at("name").AsString();
             if (const auto distances = request.find("road_distances"); distances != request.end()) {
                 for (const auto& [to, distance] : distances->second.AsMap()) {
-                    catalogue.SetDistance(from, to, distance.AsInt());
+                    catalogue_.SetDistance(from, to, distance.AsInt());
                 }
             }
         }
     }
+}
 
+void JSONReader::AddBuses(const json::Array& requests) {
     for (const json::Node& node : requests) {
         const json::Dict& request = node.AsMap();
         if (request.at("type").AsString() == "Bus") {
@@ -85,20 +91,20 @@ void AddBaseRequests(const json::Array& requests, TransportCatalogue& catalogue)
             for (const json::Node& stop : request.at("stops").AsArray()) {
                 stop_names.push_back(stop.AsString());
             }
-            catalogue.AddBus(request.at("name").AsString(), stop_names,
-                             request.at("is_roundtrip").AsBool());
+            catalogue_.AddBus(request.at("name").AsString(), stop_names,
+                              request.at("is_roundtrip").AsBool());
         }
     }
 }
 
-json::Node AnswerRequest(const json::Dict& request, const TransportCatalogue& catalogue) {
+json::Node JSONReader::AnswerRequest(const json::Dict& request) const {
     json::Dict answer{{"request_id", request.at("id")}};
     const std::string& name = request.at("name").AsString();
     const std::string& type = request.at("type").AsString();
 
     if (type == "Bus") {
-        if (const domain::Bus* bus = catalogue.FindBus(name)) {
-            const domain::BusStat stat = catalogue.GetBusStat(*bus);
+        if (const domain::Bus* bus = catalogue_.FindBus(name)) {
+            const domain::BusStat stat = catalogue_.GetBusStat(*bus);
             answer.emplace("curvature", stat.curvature);
             answer.emplace("route_length", stat.route_length);
             answer.emplace("stop_count", stat.stop_count);
@@ -107,11 +113,12 @@ json::Node AnswerRequest(const json::Dict& request, const TransportCatalogue& ca
             answer.emplace("error_message", "not found");
         }
     } else if (type == "Stop") {
-        if (const domain::Stop* stop = catalogue.FindStop(name)) {
+        if (catalogue_.FindStop(name)) {
             json::Array buses;
-            buses.reserve(stop->buses.size());
-            for (const std::string& bus_name : stop->buses) {
-                buses.emplace_back(bus_name);
+            const auto* bus_names = catalogue_.GetBusesForStop(name);
+            buses.reserve(bus_names->size());
+            for (const std::string_view bus_name : *bus_names) {
+                buses.emplace_back(std::string(bus_name));
             }
             answer.emplace("buses", std::move(buses));
         } else {
@@ -121,14 +128,11 @@ json::Node AnswerRequest(const json::Dict& request, const TransportCatalogue& ca
     return answer;
 }
 
-}  // namespace
-
-void Process(std::istream& input, std::ostream& output) {
+void JSONReader::Process(std::istream& input, std::ostream& output) {
     const json::Document document = json::Load(input);
     const json::Dict& root = document.GetRoot().AsMap();
 
-    TransportCatalogue catalogue;
-    AddBaseRequests(root.at("base_requests").AsArray(), catalogue);
+    AddBaseRequests(root.at("base_requests").AsArray());
 
     json::Array responses;
     const json::Array& requests = root.at("stat_requests").AsArray();
@@ -140,7 +144,7 @@ void Process(std::istream& input, std::ostream& output) {
             if (!rendered_map) {
                 const renderer::MapRenderer renderer(
                     ParseRenderSettings(root.at("render_settings").AsMap()));
-                const RequestHandler handler(catalogue, renderer);
+                const RequestHandler handler(catalogue_, renderer);
                 std::ostringstream svg_output;
                 handler.RenderMap().Render(svg_output);
                 rendered_map = svg_output.str();
@@ -148,7 +152,7 @@ void Process(std::istream& input, std::ostream& output) {
             responses.emplace_back(json::Dict{
                 {"request_id", request_data.at("id")}, {"map", *rendered_map}});
         } else {
-            responses.push_back(AnswerRequest(request_data, catalogue));
+            responses.push_back(AnswerRequest(request_data));
         }
     }
     json::Print(json::Document{json::Node{std::move(responses)}}, output);

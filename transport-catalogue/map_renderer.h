@@ -84,6 +84,20 @@ public:
     svg::Document Render(const std::vector<const domain::Bus*>& buses) const;
 
 private:
+    using BusList = std::vector<const domain::Bus*>;
+    using StopList = std::vector<const domain::Stop*>;
+
+    static BusList GetDrawableBuses(const BusList& buses);
+    static StopList GetDrawableStops(const BusList& buses);
+    void RenderBusLines(svg::Document& document, const BusList& buses,
+                        const SphereProjector& projector) const;
+    void RenderBusLabels(svg::Document& document, const BusList& buses,
+                         const SphereProjector& projector) const;
+    void RenderStopCircles(svg::Document& document, const StopList& stops,
+                           const SphereProjector& projector) const;
+    void RenderStopLabels(svg::Document& document, const StopList& stops,
+                          const SphereProjector& projector) const;
+
     RenderSettings settings_;
 };
 

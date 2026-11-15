@@ -7,13 +7,14 @@
 namespace transport_catalogue {
 
 void TransportCatalogue::AddStop(std::string name, geo::Coordinates coordinates) {
-    stops_.push_back({std::move(name), coordinates, {}, {}});
+    stops_.push_back({std::move(name), coordinates});
     domain::Stop& stop = stops_.back();
-    stop_index_[stop.name] = &stop;
+    stopname_to_stop_[stop.name] = &stop;
+    stopname_to_buses_.try_emplace(stop.name);
 }
 
-void TransportCatalogue::SetDistance(const std::string& from, const std::string& to, int distance) {
-    stop_index_.at(from)->road_distances[stop_index_.at(to)] = distance;
+void TransportCatalogue::SetDistance(std::string_view from, std::string_view to, int distance) {
+    distances_[stopname_to_stop_.at(from)][stopname_to_stop_.at(to)] = distance;
 }
 
 void TransportCatalogue::AddBus(std::string name, const std::vector<std::string>& stop_names,
@@ -22,21 +23,27 @@ void TransportCatalogue::AddBus(std::string name, const std::vector<std::string>
     domain::Bus& bus = buses_.back();
     bus.stops.reserve(stop_names.size());
     for (const std::string& stop_name : stop_names) {
-        domain::Stop* stop = stop_index_.at(stop_name);
+        domain::Stop* stop = stopname_to_stop_.at(stop_name);
         bus.stops.push_back(stop);
-        stop->buses.insert(bus.name);
+        stopname_to_buses_.at(stop->name).insert(bus.name);
     }
-    bus_index_[bus.name] = &bus;
+    busname_to_bus_[bus.name] = &bus;
 }
 
-const domain::Stop* TransportCatalogue::FindStop(const std::string& name) const {
-    const auto it = stop_index_.find(name);
-    return it == stop_index_.end() ? nullptr : it->second;
+const domain::Stop* TransportCatalogue::FindStop(std::string_view name) const {
+    const auto it = stopname_to_stop_.find(name);
+    return it == stopname_to_stop_.end() ? nullptr : it->second;
 }
 
-const domain::Bus* TransportCatalogue::FindBus(const std::string& name) const {
-    const auto it = bus_index_.find(name);
-    return it == bus_index_.end() ? nullptr : it->second;
+const domain::Bus* TransportCatalogue::FindBus(std::string_view name) const {
+    const auto it = busname_to_bus_.find(name);
+    return it == busname_to_bus_.end() ? nullptr : it->second;
+}
+
+const std::set<std::string_view>* TransportCatalogue::GetBusesForStop(
+    std::string_view stop_name) const {
+    const auto it = stopname_to_buses_.find(stop_name);
+    return it == stopname_to_buses_.end() ? nullptr : &it->second;
 }
 
 std::vector<const domain::Bus*> TransportCatalogue::GetAllBuses() const {
@@ -52,11 +59,15 @@ int TransportCatalogue::GetDistance(const domain::Stop* from, const domain::Stop
     if (from == to) {
         return 0;
     }
-    if (const auto it = from->road_distances.find(to); it != from->road_distances.end()) {
-        return it->second;
+    if (const auto from_it = distances_.find(from); from_it != distances_.end()) {
+        if (const auto to_it = from_it->second.find(to); to_it != from_it->second.end()) {
+            return to_it->second;
+        }
     }
-    if (const auto it = to->road_distances.find(from); it != to->road_distances.end()) {
-        return it->second;
+    if (const auto to_it = distances_.find(to); to_it != distances_.end()) {
+        if (const auto from_it = to_it->second.find(from); from_it != to_it->second.end()) {
+            return from_it->second;
+        }
     }
     throw std::out_of_range("Road distance is missing");
 }

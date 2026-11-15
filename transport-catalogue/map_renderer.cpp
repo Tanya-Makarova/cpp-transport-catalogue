@@ -1,7 +1,6 @@
 ﻿#include "map_renderer.h"
 
 #include <algorithm>
-#include <map>
 #include <string>
 #include <utility>
 
@@ -45,47 +44,79 @@ MapRenderer::MapRenderer(RenderSettings settings) : settings_(std::move(settings
 }
 
 svg::Document MapRenderer::Render(const std::vector<const domain::Bus*>& buses) const {
-    std::vector<const domain::Bus*> drawable_buses;
-    std::map<std::string, const domain::Stop*> drawable_stops;
+    const BusList drawable_buses = GetDrawableBuses(buses);
+    const StopList drawable_stops = GetDrawableStops(drawable_buses);
     std::vector<geo::Coordinates> coordinates;
-    for (const domain::Bus* bus : buses) {
-        if (bus->stops.empty()) {
-            continue;
-        }
-        drawable_buses.push_back(bus);
-        for (const domain::Stop* stop : bus->stops) {
-            coordinates.push_back(stop->coordinates);
-            drawable_stops.emplace(stop->name, stop);
-        }
+    coordinates.reserve(drawable_stops.size());
+    for (const domain::Stop* stop : drawable_stops) {
+        coordinates.push_back(stop->coordinates);
     }
-    std::sort(drawable_buses.begin(), drawable_buses.end(),
-        [](const domain::Bus* lhs, const domain::Bus* rhs) { return lhs->name < rhs->name; });
-
     const SphereProjector projector(coordinates.begin(), coordinates.end(),
                                     settings_.width, settings_.height, settings_.padding);
     svg::Document document;
-    size_t color_index = 0;
-    for (const domain::Bus* bus : drawable_buses) {
+    RenderBusLines(document, drawable_buses, projector);
+    RenderBusLabels(document, drawable_buses, projector);
+    RenderStopCircles(document, drawable_stops, projector);
+    RenderStopLabels(document, drawable_stops, projector);
+    return document;
+}
+
+MapRenderer::BusList MapRenderer::GetDrawableBuses(const BusList& buses) {
+    BusList drawable_buses;
+    for (const domain::Bus* bus : buses) {
+        if (!bus->stops.empty()) {
+            drawable_buses.push_back(bus);
+        }
+    }
+    std::sort(drawable_buses.begin(), drawable_buses.end(),
+              [](const domain::Bus* lhs, const domain::Bus* rhs) {
+                  return lhs->name < rhs->name;
+              });
+    return drawable_buses;
+}
+
+MapRenderer::StopList MapRenderer::GetDrawableStops(const BusList& buses) {
+    StopList stops;
+    for (const domain::Bus* bus : buses) {
+        stops.insert(stops.end(), bus->stops.begin(), bus->stops.end());
+    }
+    std::sort(stops.begin(), stops.end(),
+              [](const domain::Stop* lhs, const domain::Stop* rhs) {
+                  return lhs->name < rhs->name;
+              });
+    stops.erase(std::unique(stops.begin(), stops.end(),
+                            [](const domain::Stop* lhs, const domain::Stop* rhs) {
+                                return lhs->name == rhs->name;
+                            }), stops.end());
+    return stops;
+}
+
+void MapRenderer::RenderBusLines(svg::Document& document, const BusList& buses,
+                                 const SphereProjector& projector) const {
+    for (size_t i = 0; i < buses.size(); ++i) {
+        const domain::Bus* bus = buses[i];
         svg::Polyline line;
         for (const domain::Stop* stop : bus->stops) {
             line.AddPoint(projector(stop->coordinates));
         }
         if (!bus->is_roundtrip) {
-            for (size_t i = bus->stops.size() - 1; i > 0; --i) {
-                line.AddPoint(projector(bus->stops[i - 1]->coordinates));
+            for (size_t stop_index = bus->stops.size() - 1; stop_index > 0; --stop_index) {
+                line.AddPoint(projector(bus->stops[stop_index - 1]->coordinates));
             }
         }
         line.SetFillColor(svg::NoneColor)
-            .SetStrokeColor(settings_.color_palette[color_index % settings_.color_palette.size()])
+            .SetStrokeColor(settings_.color_palette[i % settings_.color_palette.size()])
             .SetStrokeWidth(settings_.line_width)
             .SetStrokeLineCap(svg::StrokeLineCap::ROUND)
             .SetStrokeLineJoin(svg::StrokeLineJoin::ROUND);
         document.Add(std::move(line));
-        ++color_index;
     }
+}
 
-    for (size_t i = 0; i < drawable_buses.size(); ++i) {
-        const domain::Bus* bus = drawable_buses[i];
+void MapRenderer::RenderBusLabels(svg::Document& document, const BusList& buses,
+                                  const SphereProjector& projector) const {
+    for (size_t i = 0; i < buses.size(); ++i) {
+        const domain::Bus* bus = buses[i];
         const svg::Color& color = settings_.color_palette[i % settings_.color_palette.size()];
         const auto add_bus_label = [&](const domain::Stop* stop) {
             AddLabel(document, projector(stop->coordinates), settings_.bus_label_offset,
@@ -96,20 +127,25 @@ svg::Document MapRenderer::Render(const std::vector<const domain::Bus*>& buses) 
             add_bus_label(bus->stops.back());
         }
     }
+}
 
-    for (const auto& [name, stop] : drawable_stops) {
+void MapRenderer::RenderStopCircles(svg::Document& document, const StopList& stops,
+                                    const SphereProjector& projector) const {
+    for (const domain::Stop* stop : stops) {
         svg::Circle circle;
         circle.SetCenter(projector(stop->coordinates))
             .SetRadius(settings_.stop_radius)
             .SetFillColor("white");
         document.Add(std::move(circle));
     }
+}
 
-    for (const auto& [name, stop] : drawable_stops) {
+void MapRenderer::RenderStopLabels(svg::Document& document, const StopList& stops,
+                                   const SphereProjector& projector) const {
+    for (const domain::Stop* stop : stops) {
         AddLabel(document, projector(stop->coordinates), settings_.stop_label_offset,
-                 settings_.stop_label_font_size, name, false, std::string("black"), settings_);
+                 settings_.stop_label_font_size, stop->name, false, std::string("black"), settings_);
     }
-    return document;
 }
 
 }  // namespace renderer
